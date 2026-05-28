@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { UploadForm } from "@/components/upload-form";
 import { StatsCards } from "@/components/stats-cards";
+import { HighRiskVehicles } from "@/components/high-risk-vehicles";
 import { ReconciliationList } from "@/components/reconciliation-list";
 
 export default function Dashboard() {
@@ -22,7 +23,8 @@ export default function Dashboard() {
 
       <main className="flex-1 container mx-auto px-4 py-8 space-y-8">
         <StatsCards />
-        
+        <HighRiskVehicles />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-1">
             <UploadForm />
