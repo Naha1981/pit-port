@@ -102,7 +102,7 @@ router.get("/reconciliations", async (req, res): Promise<void> => {
     return;
   }
 
-  const { search, status } = parsed.data;
+  const { search, status, date_from, date_to } = parsed.data;
 
   let rows = await db
     .select()
@@ -116,6 +116,18 @@ router.get("/reconciliations", async (req, res): Promise<void> => {
 
   if (status) {
     rows = rows.filter((r) => r.status === status);
+  }
+
+  if (date_from) {
+    const from = new Date(date_from);
+    from.setUTCHours(0, 0, 0, 0);
+    rows = rows.filter((r) => r.createdAt >= from);
+  }
+
+  if (date_to) {
+    const to = new Date(date_to);
+    to.setUTCHours(23, 59, 59, 999);
+    rows = rows.filter((r) => r.createdAt <= to);
   }
 
   res.json(rows.map(toApiLog));

@@ -33,7 +33,9 @@ export const ReconcileDocumentsBody = zod.object({
  */
 export const ListReconciliationsQueryParams = zod.object({
   "search": zod.coerce.string().optional().describe('Filter by truck registration (case-insensitive)'),
-  "status": zod.coerce.string().optional().describe('Filter by status value')
+  "status": zod.coerce.string().optional().describe('Filter by status value'),
+  "date_from": zod.date().optional().describe('Filter records on or after this date (YYYY-MM-DD)'),
+  "date_to": zod.date().optional().describe('Filter records on or before this date (YYYY-MM-DD)')
 })
 
 export const ListReconciliationsResponseItem = zod.object({

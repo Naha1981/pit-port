@@ -12,19 +12,25 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, Filter, Pencil, Trash2, ChevronDown, FileJson, AlertTriangle, Download } from "lucide-react";
+import { Search, Filter, Pencil, Trash2, ChevronDown, FileJson, AlertTriangle, Download, CalendarRange, X } from "lucide-react";
 
 export function ReconciliationList() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 500);
   const [status, setStatus] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const [editLog, setEditLog] = useState<ReconciliationLog | null>(null);
   const [deleteLog, setDeleteLog] = useState<ReconciliationLog | null>(null);
 
+  const hasDateFilter = dateFrom !== "" || dateTo !== "";
+
   const queryParams = {
     search: debouncedSearch || undefined,
-    status: status !== "all" ? status : undefined
+    status: status !== "all" ? status : undefined,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
   };
 
   const { data: logs, isLoading } = useListReconciliations(queryParams, {
@@ -32,6 +38,18 @@ export function ReconciliationList() {
       queryKey: getListReconciliationsQueryKey(queryParams)
     }
   });
+
+  function clearDates() {
+    setDateFrom("");
+    setDateTo("");
+  }
+
+  function buildExportFilename() {
+    if (dateFrom && dateTo) return `reconciliation-audit-${dateFrom}-to-${dateTo}.csv`;
+    if (dateFrom) return `reconciliation-audit-from-${dateFrom}.csv`;
+    if (dateTo) return `reconciliation-audit-to-${dateTo}.csv`;
+    return undefined;
+  }
 
   const getStatusBadge = (statusStr: string) => {
     if (statusStr.includes("RECONCILED")) {
@@ -45,41 +63,86 @@ export function ReconciliationList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center bg-card/30 p-4 rounded-lg border border-border/50">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search truck reg..." 
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 bg-background/50 border-border/50 focus-visible:ring-primary"
-          />
+      <div className="flex flex-col gap-3 bg-card/30 p-4 rounded-lg border border-border/50">
+        {/* Row 1: search + status + export */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search truck reg..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 bg-background/50 border-border/50 focus-visible:ring-primary"
+            />
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="w-full sm:w-[200px] bg-background/50 border-border/50 focus-visible:ring-primary">
+                <SelectValue placeholder="All Statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="RECONCILED">Reconciled</SelectItem>
+                <SelectItem value="WARNING (Minor Variance)">Warning (Minor)</SelectItem>
+                <SelectItem value="CRITICAL (High Weight Variance)">Critical (Weight)</SelectItem>
+                <SelectItem value="CRITICAL (Registration Mismatch)">Critical (Reg Mismatch)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 bg-background/50 border-border/50 shrink-0"
+              disabled={!logs || logs.length === 0}
+              onClick={() => logs && exportReconciliationsAsCsv(logs, buildExportFilename())}
+              title="Export current view as CSV"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-full sm:w-[200px] bg-background/50 border-border/50 focus-visible:ring-primary">
-              <SelectValue placeholder="All Statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="RECONCILED">Reconciled</SelectItem>
-              <SelectItem value="WARNING (Minor Variance)">Warning (Minor)</SelectItem>
-              <SelectItem value="CRITICAL (High Weight Variance)">Critical (Weight)</SelectItem>
-              <SelectItem value="CRITICAL (Registration Mismatch)">Critical (Reg Mismatch)</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 bg-background/50 border-border/50 shrink-0"
-            disabled={!logs || logs.length === 0}
-            onClick={() => logs && exportReconciliationsAsCsv(logs)}
-            title="Export current view as CSV"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
+
+        {/* Row 2: date range */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0 text-muted-foreground">
+            <CalendarRange className="h-4 w-4" />
+            <span className="text-xs font-medium uppercase tracking-wider">Date range</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-9 rounded-md border border-border/50 bg-background/50 px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary [color-scheme:dark]"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-9 rounded-md border border-border/50 bg-background/50 px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary [color-scheme:dark]"
+            />
+            {hasDateFilter && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 px-2 text-muted-foreground hover:text-foreground"
+                onClick={clearDates}
+                title="Clear date filter"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
+            {hasDateFilter && (
+              <span className="text-xs text-primary font-mono">
+                {logs ? `${logs.length} record${logs.length !== 1 ? "s" : ""}` : ""}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

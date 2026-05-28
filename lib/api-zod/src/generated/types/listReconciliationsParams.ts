@@ -15,4 +15,12 @@ search?: string;
  * Filter by status value
  */
 status?: string;
+/**
+ * Filter records on or after this date (YYYY-MM-DD)
+ */
+date_from?: Date;
+/**
+ * Filter records on or before this date (YYYY-MM-DD)
+ */
+date_to?: Date;
 };

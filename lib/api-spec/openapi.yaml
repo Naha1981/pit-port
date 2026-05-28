@@ -78,6 +78,20 @@ paths:
           schema:
             type: string
           description: Filter by status value
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Filter records on or after this date (YYYY-MM-DD)
+        - name: date_to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Filter records on or before this date (YYYY-MM-DD)
       responses:
         "200":
           description: List of reconciliation logs
