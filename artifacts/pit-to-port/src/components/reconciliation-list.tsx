@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useListReconciliations, getListReconciliationsQueryKey, ReconciliationLog } from "@workspace/api-client-react";
 import { useDebounce } from "@/hooks/use-debounce";
-import { formatNumber, formatPercentage, formatDate } from "@/lib/formatters";
+import { formatNumber, formatPercentage, formatDate, exportReconciliationsAsCsv } from "@/lib/formatters";
 import { EditReconciliationDialog } from "@/components/edit-reconciliation-dialog";
 import { DeleteReconciliationDialog } from "@/components/delete-reconciliation-dialog";
 import { VarianceChart } from "@/components/variance-chart";
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, Filter, Pencil, Trash2, ChevronDown, FileJson, AlertTriangle } from "lucide-react";
+import { Search, Filter, Pencil, Trash2, ChevronDown, FileJson, AlertTriangle, Download } from "lucide-react";
 
 export function ReconciliationList() {
   const [search, setSearch] = useState("");
@@ -69,6 +69,17 @@ export function ReconciliationList() {
               <SelectItem value="CRITICAL (Registration Mismatch)">Critical (Reg Mismatch)</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 bg-background/50 border-border/50 shrink-0"
+            disabled={!logs || logs.length === 0}
+            onClick={() => logs && exportReconciliationsAsCsv(logs)}
+            title="Export current view as CSV"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
         </div>
       </div>
 
