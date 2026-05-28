@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Pit-to-Port Reconciler"
+version = "1.0.0"
+id = "artifacts/pit-to-port"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18533
+
+[services.development]
+run = "pnpm --filter @workspace/pit-to-port run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/pit-to-port", "run", "build" ]
+publicDir = "artifacts/pit-to-port/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18533"
+BASE_PATH = "/"

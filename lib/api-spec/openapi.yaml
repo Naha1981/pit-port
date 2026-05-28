@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Pit-to-Port Weighbridge Reconciliation API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: reconciliation
+    description: Weighbridge reconciliation operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,158 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /reconcile:
+    post:
+      operationId: reconcileDocuments
+      tags: [reconciliation]
+      summary: Process and reconcile mine + port documents
+      description: Uploads two documents (mine slip and port receipt), extracts data via Gemini, runs reconciliation logic, and persists the result.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ReconcileInput"
+      responses:
+        "201":
+          description: Reconciliation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationLog"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server or Gemini error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reconciliations:
+    get:
+      operationId: listReconciliations
+      tags: [reconciliation]
+      summary: List all reconciliation logs
+      description: Returns all reconciliation log entries ordered by most recent first.
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by truck registration (case-insensitive)
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by status value
+      responses:
+        "200":
+          description: List of reconciliation logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReconciliationLog"
+
+  /reconciliations/stats:
+    get:
+      operationId: getReconciliationStats
+      tags: [reconciliation]
+      summary: Aggregate statistics
+      description: Returns summary counts and averages across all reconciliation logs.
+      responses:
+        "200":
+          description: Aggregated stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationStats"
+
+  /reconciliations/{id}:
+    get:
+      operationId: getReconciliation
+      tags: [reconciliation]
+      summary: Get single reconciliation log
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reconciliation log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationLog"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      operationId: updateReconciliation
+      tags: [reconciliation]
+      summary: Manually correct a reconciliation log
+      description: Human-in-the-loop override to correct extracted values and recalculate status.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReconciliationUpdate"
+      responses:
+        "200":
+          description: Updated reconciliation log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationLog"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: deleteReconciliation
+      tags: [reconciliation]
+      summary: Delete a reconciliation log
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +188,97 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    ReconcileInput:
+      type: object
+      required: [mine_slip, port_slip]
+      properties:
+        mine_slip:
+          type: string
+          format: binary
+          description: Mine weighbridge slip (PDF or image)
+        port_slip:
+          type: string
+          format: binary
+          description: Port siding receipt (PDF or image)
+
+    ReconciliationLog:
+      type: object
+      required:
+        - id
+        - truck_reg
+        - mine_net_weight
+        - port_net_weight
+        - variance
+        - status
+        - created_at
+      properties:
+        id:
+          type: integer
+        consignment_note:
+          type: ["string", "null"]
+        port_reference:
+          type: ["string", "null"]
+        truck_reg:
+          type: string
+        mine_net_weight:
+          type: number
+        port_net_weight:
+          type: number
+        variance:
+          type: number
+        transit_hours:
+          type: ["number", "null"]
+        status:
+          type: string
+        raw_mine_json:
+          type: ["string", "null"]
+        raw_port_json:
+          type: ["string", "null"]
+        created_at:
+          type: string
+          format: date-time
+
+    ReconciliationUpdate:
+      type: object
+      required: [truck_reg, mine_net_weight, port_net_weight]
+      properties:
+        consignment_note:
+          type: ["string", "null"]
+        port_reference:
+          type: ["string", "null"]
+        truck_reg:
+          type: string
+        mine_net_weight:
+          type: number
+        port_net_weight:
+          type: number
+
+    ReconciliationStats:
+      type: object
+      required:
+        - total
+        - reconciled
+        - warnings
+        - critical
+        - avg_variance
+        - avg_transit_hours
+      properties:
+        total:
+          type: integer
+        reconciled:
+          type: integer
+        warnings:
+          type: integer
+        critical:
+          type: integer
+        avg_variance:
+          type: number
+        avg_transit_hours:
+          type: ["number", "null"]
