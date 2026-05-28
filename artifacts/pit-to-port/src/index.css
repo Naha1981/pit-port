@@ -348,3 +348,20 @@
     inset: -1px;
   }
 }
+
+/* ---- Print: compliance report portal ---- */
+@media print {
+  body > *:not(#pp-report-print) {
+    display: none !important;
+  }
+  #pp-report-print {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    padding: 15mm 20mm;
+    background: white;
+    color: #111;
+    overflow: visible;
+    font-family: Arial, sans-serif;
+  }
+}

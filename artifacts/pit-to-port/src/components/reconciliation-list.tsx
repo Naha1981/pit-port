@@ -5,6 +5,7 @@ import { formatNumber, formatPercentage, formatDate, exportReconciliationsAsCsv 
 import { EditReconciliationDialog } from "@/components/edit-reconciliation-dialog";
 import { DeleteReconciliationDialog } from "@/components/delete-reconciliation-dialog";
 import { TruckSummarySheet } from "@/components/truck-summary-sheet";
+import { ComplianceReportDialog } from "@/components/compliance-report-dialog";
 import { VarianceChart } from "@/components/variance-chart";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, Filter, Pencil, Trash2, ChevronDown, FileJson, AlertTriangle, Download, CalendarRange, X } from "lucide-react";
+import { Search, Filter, Pencil, Trash2, ChevronDown, FileJson, AlertTriangle, Download, CalendarRange, X, FileText } from "lucide-react";
 
 export function ReconciliationList() {
   const [search, setSearch] = useState("");
@@ -25,6 +26,7 @@ export function ReconciliationList() {
   const [editLog, setEditLog] = useState<ReconciliationLog | null>(null);
   const [deleteLog, setDeleteLog] = useState<ReconciliationLog | null>(null);
   const [truckSummaryReg, setTruckSummaryReg] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const hasDateFilter = dateFrom !== "" || dateTo !== "";
 
@@ -101,6 +103,17 @@ export function ReconciliationList() {
             >
               <Download className="h-4 w-4 mr-2" />
               Export
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 bg-background/50 border-border/50 shrink-0"
+              disabled={!logs || logs.length === 0}
+              onClick={() => setReportOpen(true)}
+              title="Generate compliance report"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Report
             </Button>
           </div>
         </div>
@@ -269,6 +282,15 @@ export function ReconciliationList() {
         truckReg={truckSummaryReg}
         open={!!truckSummaryReg}
         onOpenChange={(open) => !open && setTruckSummaryReg(null)}
+      />
+      <ComplianceReportDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        logs={logs ?? []}
+        dateFrom={dateFrom || undefined}
+        dateTo={dateTo || undefined}
+        search={debouncedSearch || undefined}
+        status={status !== "all" ? status : undefined}
       />
     </div>
   );
