@@ -4,6 +4,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { formatNumber, formatPercentage, formatDate, exportReconciliationsAsCsv } from "@/lib/formatters";
 import { EditReconciliationDialog } from "@/components/edit-reconciliation-dialog";
 import { DeleteReconciliationDialog } from "@/components/delete-reconciliation-dialog";
+import { TruckSummarySheet } from "@/components/truck-summary-sheet";
 import { VarianceChart } from "@/components/variance-chart";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -23,6 +24,7 @@ export function ReconciliationList() {
 
   const [editLog, setEditLog] = useState<ReconciliationLog | null>(null);
   const [deleteLog, setDeleteLog] = useState<ReconciliationLog | null>(null);
+  const [truckSummaryReg, setTruckSummaryReg] = useState<string | null>(null);
 
   const hasDateFilter = dateFrom !== "" || dateTo !== "";
 
@@ -178,7 +180,13 @@ export function ReconciliationList() {
                 <div className="flex flex-col md:flex-row justify-between gap-4 mb-6">
                   <div>
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-xl font-bold font-mono tracking-tight">{log.truck_reg}</h3>
+                      <button
+                        className="text-xl font-bold font-mono tracking-tight hover:text-primary hover:underline underline-offset-2 transition-colors cursor-pointer"
+                        onClick={() => setTruckSummaryReg(log.truck_reg)}
+                        title="View truck history"
+                      >
+                        {log.truck_reg}
+                      </button>
                       {getStatusBadge(log.status)}
                     </div>
                     <div className="text-sm text-muted-foreground flex gap-4 font-mono">
@@ -257,6 +265,11 @@ export function ReconciliationList() {
 
       <EditReconciliationDialog log={editLog} open={!!editLog} onOpenChange={(open) => !open && setEditLog(null)} />
       <DeleteReconciliationDialog log={deleteLog} open={!!deleteLog} onOpenChange={(open) => !open && setDeleteLog(null)} />
+      <TruckSummarySheet
+        truckReg={truckSummaryReg}
+        open={!!truckSummaryReg}
+        onOpenChange={(open) => !open && setTruckSummaryReg(null)}
+      />
     </div>
   );
 }
