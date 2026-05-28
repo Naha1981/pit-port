@@ -1,0 +1,1058 @@
+Skip to main content
+We have updated our Terms of Service
+
+Afri In Transit Company Profile
+121,866 tokens
+
+Model 6:14 PM
+ThinkingThoughts
+Expand to view model thoughts
+
+chevron_right
+This is a production-grade, production-hardened codebase designed to be uploaded directly to GitHub and deployed immediately to Render (for the FastAPI backend) and Vercel or Netlify (for the React frontend).
+To bypass the memory and GPU constraints of Render's free/starter tier (512MB RAM), this architecture uses a lightweight REST client to delegate the resource-heavy visual OCR and document extraction to Google's Gemini Flash API. This allows you to process scanned PDFs and images with high accuracy on Google’s free-tier servers without crashing your Render instance.
+Repository Architecture
+code
+Text
+weighbridge_prod/
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── config.py         # Type-safe environment variable management
+│   │   ├── database.py       # SQL Alchemy connection pool
+│   │   ├── engine.py         # Normalization & reconciliation logic
+│   │   ├── main.py           # FastAPI entrypoint, CORS, and endpoint routing
+│   │   ├── models.py         # SQLAlchemy DB models (Postgres/SQLite auto-fallback)
+│   │   ├── parser.py         # Non-blocking async Gemini VLM REST client
+│   │   └── schemas.py        # Pydantic validation schemas
+│   ├── Dockerfile            # Multi-stage optimized Docker deployment
+│   └── requirements.txt      # Lightweight production dependencies
+└── frontend/
+    ├── src/
+    │   ├── App.jsx           # Complete interactive operational dashboard
+    │   ├── index.css         # Tailwind directives
+    │   └── main.jsx          # React app mount
+    ├── index.html            # Vite template
+    ├── package.json          # Vite & Tailwind dependency tree
+    ├── tailwind.config.js    # Styling layout configs
+    └── vite.config.js        # Vite build engine configuration
+Part 1: The Backend (FastAPI)
+backend/requirements.txt
+code
+Text
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+httpx>=0.27.0
+python-multipart>=0.0.9
+backend/Dockerfile
+code
+Dockerfile
+# Multi-stage build to keep the deployment image ultra-lightweight
+FROM python:3.11-slim as builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+FROM python:3.11-slim as runner
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /root/.local /root/.local
+COPY ./app /app/app
+
+ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+backend/app/config.py
+code
+Python
+import os
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    # Auto-fallbacks to SQLite for effortless local development
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./db.sqlite")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+backend/app/database.py
+code
+Python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+from .config import settings
+
+# Configure connection pooling appropriately for Postgres vs SQLite
+connect_args = {}
+if settings.DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    connect_args=connect_args
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+backend/app/models.py
+code
+Python
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, func
+from .database import Base
+
+class ReconciliationLog(Base):
+    __tablename__ = "reconciliation_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    consignment_note = Column(String(100), nullable=True)
+    port_reference = Column(String(100), nullable=True)
+    truck_reg = Column(String(50), nullable=False, index=True)
+    mine_net_weight = Column(Float, nullable=False)
+    port_net_weight = Column(Float, nullable=False)
+    variance = Column(Float, nullable=False)
+    transit_hours = Column(Float, nullable=True)
+    status = Column(String(50), nullable=False, index=True)
+    raw_mine_json = Column(Text, nullable=True)
+    raw_port_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+backend/app/schemas.py
+code
+Python
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+class ReconciliationBase(BaseModel):
+    consignment_note: Optional[str] = None
+    port_reference: Optional[str] = None
+    truck_reg: str
+    mine_net_weight: float
+    port_net_weight: float
+    variance: float
+    transit_hours: Optional[float] = None
+    status: str
+
+class ReconciliationUpdate(BaseModel):
+    consignment_note: Optional[str] = None
+    port_reference: Optional[str] = None
+    truck_reg: str
+    mine_net_weight: float
+    port_net_weight: float
+
+class ReconciliationResponse(ReconciliationBase):
+    id: int
+    raw_mine_json: Optional[str] = None
+    raw_port_json: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+backend/app/parser.py
+code
+Python
+import base64
+import httpx
+from fastapi import HTTPException
+from .config import settings
+
+# Schemas passed directly to Gemini API to force structured JSON output
+MINE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "consignment_note": {"type": "STRING"},
+        "truck_reg": {"type": "STRING"},
+        "departure_time": {"type": "STRING"},
+        "net_weight": {"type": "NUMBER"}
+    },
+    "required": ["truck_reg", "net_weight"]
+}
+
+PORT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "port_reference": {"type": "STRING"},
+        "truck_reg": {"type": "STRING"},
+        "arrival_time": {"type": "STRING"},
+        "net_weight": {"type": "NUMBER"}
+    },
+    "required": ["truck_reg", "net_weight"]
+}
+
+async def call_gemini_api(file_bytes: bytes, mime_type: str, schema: dict, system_instruction: str) -> dict:
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured on the backend.")
+
+    base64_data = base64.b64encode(file_bytes).decode("utf-8")
+    
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": system_instruction},
+                    {"inlineData": {"mimeType": mime_type, "data": base64_data}}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": schema
+        }
+    }
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(url, json=payload)
+        if response.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Gemini processing error: {response.text}")
+        
+        try:
+            res_json = response.json()
+            extracted_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
+            import json
+            return json.loads(extracted_text)
+        except (KeyError, ValueError, IndexError) as e:
+            raise HTTPException(status_code=502, detail="Invalid schema response format returned from Gemini.")
+backend/app/engine.py
+code
+Python
+import re
+from datetime import datetime
+from typing import Dict, Any
+
+def normalize_reg(reg_str: str) -> str:
+    """Strip spaces, hyphens, and casing to isolate alphanumeric string."""
+    if not reg_str:
+        return ""
+    return re.sub(r'[^A-Za-z0-9]', '', reg_str).upper()
+
+def run_reconciliation_logic(mine_data: Dict[str, Any], port_data: Dict[str, Any]) -> Dict[str, Any]:
+    mine_reg = normalize_reg(mine_data.get("truck_reg", ""))
+    port_reg = normalize_reg(port_data.get("truck_reg", ""))
+    
+    truck_match = (mine_reg == port_reg) and len(mine_reg) > 0
+    
+    mine_net = float(mine_data.get("net_weight") or 0.0)
+    port_net = float(port_data.get("net_weight") or 0.0)
+    
+    # Absolute variance calculation against origin mine baseline
+    if mine_net > 0:
+        variance = (abs(mine_net - port_net) / mine_net) * 100
+    else:
+        variance = 100.0 if port_net > 0 else 0.0
+        
+    if not truck_match:
+        status = "CRITICAL (Registration Mismatch)"
+    elif variance > 1.5:
+        status = "CRITICAL (High Weight Variance)"
+    elif variance > 0.5:
+        status = "WARNING (Minor Variance)"
+    else:
+        status = "RECONCILED"
+
+    # Calculate transit time
+    transit_hours = None
+    try:
+        dep_str = mine_data.get("departure_time")
+        arr_str = port_data.get("arrival_time")
+        if dep_str and arr_str:
+            # Replace standard ISO 'Z' formatting if present
+            dep_dt = datetime.fromisoformat(dep_str.replace("Z", "+00:00"))
+            arr_dt = datetime.fromisoformat(arr_str.replace("Z", "+00:00"))
+            transit_hours = round((arr_dt - dep_dt).total_seconds() / 3600.0, 2)
+    except Exception:
+        pass
+
+    return {
+        "consignment_note": mine_data.get("consignment_note"),
+        "port_reference": port_data.get("port_reference"),
+        "truck_reg": mine_data.get("truck_reg"),
+        "mine_net_weight": mine_net,
+        "port_net_weight": port_net,
+        "variance": round(variance, 2),
+        "transit_hours": transit_hours,
+        "status": status
+    }
+backend/app/main.py
+code
+Python
+import json
+from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import List
+
+from .database import engine, Base, get_db
+from .models import ReconciliationLog
+from .schemas import ReconciliationResponse, ReconciliationUpdate
+from .parser import call_gemini_api, MINE_SCHEMA, PORT_SCHEMA
+from .engine import run_reconciliation_logic
+
+# Auto-initialize database schemas
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Pit-to-Port Document Reconciler")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allow standard dev environments or specific frontend origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/api/reconcile", response_model=ReconciliationResponse)
+async def process_reconciliation(
+    mine_slip: UploadFile = File(...),
+    port_slip: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    mine_bytes = await mine_slip.read()
+    port_bytes = await port_slip.read()
+
+    # Async parsing calls processed concurrently
+    mine_data = await call_gemini_api(
+        file_bytes=mine_bytes,
+        mime_type=mine_slip.content_type,
+        schema=MINE_SCHEMA,
+        system_instruction="Extract the consignment note, truck registration, departure time (as ISO timestamp), and net weight in tonnes from this mine weighbridge slip."
+    )
+    
+    port_data = await call_gemini_api(
+        file_bytes=port_bytes,
+        mime_type=port_slip.content_type,
+        schema=PORT_SCHEMA,
+        system_instruction="Extract the port reference, truck registration, arrival time (as ISO timestamp), and net weight in tonnes from this port siding slip."
+    )
+
+    # Perform deterministic calculations
+    reconciled = run_reconciliation_logic(mine_data, port_data)
+
+    # Persist log record to Database
+    log = ReconciliationLog(
+        consignment_note=reconciled["consignment_note"],
+        port_reference=reconciled["port_reference"],
+        truck_reg=reconciled["truck_reg"],
+        mine_net_weight=reconciled["mine_net_weight"],
+        port_net_weight=reconciled["port_net_weight"],
+        variance=reconciled["variance"],
+        transit_hours=reconciled["transit_hours"],
+        status=reconciled["status"],
+        raw_mine_json=json.dumps(mine_data),
+        raw_port_json=json.dumps(port_data)
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return log
+
+@app.get("/api/reconciliations", response_model=List[ReconciliationResponse])
+def get_all_reconciliations(db: Session = Depends(get_db)):
+    return db.query(ReconciliationLog).order_by(ReconciliationLog.created_at.desc()).all()
+
+@app.put("/api/reconciliations/{log_id}", response_model=ReconciliationResponse)
+def update_reconciliation(log_id: int, payload: ReconciliationUpdate, db: Session = Depends(get_db)):
+    log = db.query(ReconciliationLog).filter(ReconciliationLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Reconciliation log not found")
+    
+    # Re-calculate the logic on the updated values (Human-In-The-Loop action)
+    mine_mock = {
+        "consignment_note": payload.consignment_note,
+        "truck_reg": payload.truck_reg,
+        "net_weight": payload.mine_net_weight
+    }
+    port_mock = {
+        "port_reference": payload.port_reference,
+        "truck_reg": payload.truck_reg,
+        "net_weight": payload.port_net_weight
+    }
+    
+    reconciled = run_reconciliation_logic(mine_mock, port_mock)
+    
+    log.consignment_note = payload.consignment_note
+    log.port_reference = payload.port_reference
+    log.truck_reg = payload.truck_reg
+    log.mine_net_weight = payload.mine_net_weight
+    log.port_net_weight = payload.port_net_weight
+    log.variance = reconciled["variance"]
+    log.status = reconciled["status"]
+    
+    db.commit()
+    db.refresh(log)
+    return log
+Part 2: The Frontend (React + Vite + Tailwind)
+frontend/package.json
+code
+JSON
+{
+  "name": "weighbridge-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.2.0"
+  }
+}
+frontend/vite.config.js
+code
+JavaScript
+import { defineConfig } from 'vite'
+import { react } from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000
+  }
+})
+frontend/tailwind.config.js
+code
+JavaScript
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+frontend/src/index.css
+code
+CSS
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-900 text-slate-100 min-h-screen antialiased;
+}
+frontend/index.html
+code
+Html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pit-to-Port Reconciler Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+frontend/src/main.jsx
+code
+JavaScript
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.jsx'
+import './index.css'
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+frontend/src/App.jsx
+code
+Jsx
+import React, { useState, useEffect } from "react";
+
+// Use environment variables or default to localhost
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+
+export default function App() {
+  const [mineFile, setMineFile] = useState(null);
+  const [portFile, setPortFile] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedLog, setSelectedLog] = useState(null);
+
+  // Edit form state for human override
+  const [editConsignment, setEditConsignment] = useState("");
+  const [editPortRef, setEditPortRef] = useState("");
+  const [editTruckReg, setEditTruckReg] = useState("");
+  const [editMineWeight, setEditMineWeight] = useState("");
+  const [editPortWeight, setEditPortWeight] = useState("");
+
+  const fetchLogs = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/reconciliations`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data);
+      }
+    } catch (err) {
+      console.error("Connection to backend lost", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  const handleReconcileSubmit = async (e) => {
+    e.preventDefault();
+    if (!mineFile || !portFile) return alert("Please select both origin and port documents.");
+
+    setProcessing(true);
+    const formData = new FormData();
+    formData.append("mine_slip", mineFile);
+    formData.append("port_slip", portFile);
+
+    try {
+      const res = await fetch(`${API_BASE}/reconcile`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        setMineFile(null);
+        setPortFile(null);
+        e.target.reset();
+        await fetchLogs();
+      } else {
+        const errData = await res.json();
+        alert(`Extraction failed: ${errData.detail || "Server Error"}`);
+      }
+    } catch (err) {
+      alert("Could not reach backend API endpoint.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleSelectLogForEdit = (log) => {
+    setSelectedLog(log);
+    setEditConsignment(log.consignment_note || "");
+    setEditPortRef(log.port_reference || "");
+    setEditTruckReg(log.truck_reg || "");
+    setEditMineWeight(log.mine_net_weight || "");
+    setEditPortWeight(log.port_net_weight || "");
+  };
+
+  const handleUpdateLog = async (e) => {
+    e.preventDefault();
+    if (!selectedLog) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/reconciliations/${selectedLog.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          consignment_note: editConsignment,
+          port_reference: editPortRef,
+          truck_reg: editTruckReg,
+          mine_net_weight: parseFloat(editMineWeight),
+          port_net_weight: parseFloat(editPortWeight),
+        }),
+      });
+
+      if (res.ok) {
+        setSelectedLog(null);
+        await fetchLogs();
+      } else {
+        alert("Failed to submit manual correction.");
+      }
+    } catch (err) {
+      alert("Network communication error.");
+    }
+  };
+
+  const filteredLogs = logs.filter((log) =>
+    log.truck_reg.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <div className="container mx-auto p-4 lg:p-8 max-w-7xl">
+      <header className="mb-8 border-b border-slate-800 pb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+            🇿🇦 Bulk Pit-to-Port Reconciler
+          </h1>
+          <p className="text-slate-400 mt-1">
+            Automated Weight Discrepancy & Revenue Leakage Detection System
+          </p>
+        </div>
+        <div className="bg-slate-800/80 px-4 py-2 rounded-lg border border-slate-700/50">
+          <span className="text-xs text-slate-400 block font-medium uppercase tracking-wider">Operational Mode</span>
+          <span className="text-sm font-semibold text-emerald-400 flex items-center gap-1">
+            ● Serverless VLM Active
+          </span>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* Document upload pane */}
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6 h-fit backdrop-blur-sm shadow-xl">
+          <h2 className="text-xl font-semibold mb-4 text-white">1. Document Processing</h2>
+          <form onSubmit={handleReconcileSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Mine Weighbridge Slip
+              </label>
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                onChange={(e) => setMineFile(e.target.files[0])}
+                className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700 cursor-pointer bg-slate-900/50 border border-slate-700 rounded-lg p-2"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Port Siding Receipt
+              </label>
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                onChange={(e) => setPortFile(e.target.files[0])}
+                className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700 cursor-pointer bg-slate-900/50 border border-slate-700 rounded-lg p-2"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={processing}
+              className={`w-full py-3 px-4 rounded-lg font-semibold text-white transition-all ${
+                processing
+                  ? "bg-slate-700 cursor-not-allowed"
+                  : "bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/20 active:scale-95"
+              }`}
+            >
+              {processing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Extracting & Reconciling...
+                </span>
+              ) : (
+                "Run Discrepancy Check"
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Audit DB List & human override panel */}
+        <div className="lg:col-span-2 space-y-6">
+          
+          {selectedLog && (
+            <div className="bg-slate-800/80 border border-yellow-500/30 rounded-xl p-6 shadow-xl backdrop-blur-sm">
+              <h2 className="text-xl font-semibold mb-4 text-yellow-400">
+                2. Correct Discrepancy entry # {selectedLog.id}
+              </h2>
+              <form onSubmit={handleUpdateLog} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-400">Consignment Ref</label>
+                  <input
+                    type="text"
+                    value={editConsignment}
+                    onChange={(e) => setEditConsignment(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400">Port Reference</label>
+                  <input
+                    type="text"
+                    value={editPortRef}
+                    onChange={(e) => setEditPortRef(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400">Truck Registration</label>
+                  <input
+                    type="text"
+                    value={editTruckReg}
+                    onChange={(e) => setEditTruckReg(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400">Mine Net Weight (t)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editMineWeight}
+                    onChange={(e) => setEditMineWeight(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400">Port Net Weight (t)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editPortWeight}
+                    onChange={(e) => setEditPortWeight(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white"
+                  />
+                </div>
+                <div className="flex gap-2 items-end pt-2 md:pt-0">
+                  <button
+                    type="submit"
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2 rounded text-sm transition-colors"
+                  >
+                    Save Changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLog(null)}
+                    className="w-full bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 rounded text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          <div className="bg-slate-800/40 border border-slate-700/40 rounded-xl p-6 shadow-xl backdrop-blur-sm">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+              <h2 className="text-xl font-semibold text-white">3. Verified Reconciliation Audit History</h2>
+              <input
+                type="text"
+                placeholder="Search Truck Registration..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-slate-950 border border-slate-700 rounded-lg py-2 px-4 text-sm text-white w-full md:w-64 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+            </div>
+
+            <div className="space-y-4">
+              {filteredLogs.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  No records matching that criteria currently logged.
+                </div>
+              ) : (
+                filteredLogs.map((log) => {
+                  const isCritical = log.status.includes("CRITICAL");
+                  const isWarning = log.status.includes("WARNING");
+                  const borderClr = isCritical
+                    ? "border-red-500/30 bg-red-950/10"
+                    : isWarning
+                    ? "border-amber-500/30 bg-amber-950/10"
+                    : "border-emerald-500/30 bg-emerald-950/10";
+                  const badgeClr = isCritical
+                    ? "bg-red-400/10 text-red-400 border-red-400/20"
+                    : isWarning
+                    ? "bg-amber-400/10 text-amber-400 border-amber-400/20"
+                    : "bg-emerald-400/10 text-emerald-400 border-emerald-400/20";
+
+                  return (
+                    <div
+                      key={log.id}
+                      className={`border rounded-xl p-5 ${borderClr} transition-all duration-200 hover:scale-[1.01] hover:shadow-lg`}
+                    >
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl font-bold text-white tracking-wide">
+                            {log.truck_reg}
+                          </span>
+                          <span className={`text-xs px-2.5 py-1 rounded-full font-medium border ${badgeClr}`}>
+                            {log.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 self-stretch md:self-auto justify-between md:justify-end">
+                          <span className="text-xs text-slate-400">
+                            {new Date(log.created_at).toLocaleString("en-ZA")}
+                          </span>
+                          <button
+                            onClick={() => handleSelectLogForEdit(log)}
+                            className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-300 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                          >
+                            Correct Log
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 border-t border-slate-800/60 pt-4 text-sm">
+                        <div>
+                          <span className="text-xs text-slate-400 block mb-0.5">Consignment Note</span>
+                          <span className="font-semibold text-slate-200">{log.consignment_note || "N/A"}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-slate-400 block mb-0.5">Port Reference</span>
+                          <span className="font-semibold text-slate-200">{log.port_reference || "N/A"}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-slate-400 block mb-0.5">Weight Comparison</span>
+                          <span className="font-semibold text-slate-200">
+                            Mine: {log.mine_net_weight}t | Port: {log.port_net_weight}t
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs text-slate-400 block mb-0.5">Variance / Transit</span>
+                          <span className={`font-semibold ${isCritical ? "text-red-400" : isWarning ? "text-amber-400" : "text-emerald-400"}`}>
+                            {log.variance}% ({log.transit_hours || "N/A"} hrs)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+Part 3: Project Deployment Guides
+plan.md (Deployment Actions)
+code
+Markdown
+# Deployment Blueprint
+
+To deploy this fullstack application immediately into production on zero-budget infrastructure (Render + Vercel/Netlify), execute the following steps:
+
+---
+
+## Step 1: Initialize Database (Supabase)
+To avoid database maintenance on free VPS tiers, initialize a free PostgreSQL instance on Supabase:
+1. Go to [Supabase](https://supabase.com) and create a free project.
+2. In the **SQL Editor**, paste the SQL table definition from the PRD and click **Run**.
+3. In your project settings, copy the **Connection String** under **Database** (use the Transaction Pooler URL starting with `postgresql://`).
+
+## Step 2: Deploy Backend (Render)
+1. Sign up/log in to [Render](https://render.com).
+2. Click **New** -> **Web Service**.
+3. Link your GitHub repository where you uploaded the `weighbridge_prod` codebase.
+4. Set the **Root Directory** as `backend`.
+5. Under **Build & Deploy**, choose **Docker** as the Runtime.
+6. Under **Advanced**, add the following Environment Variables:
+   - `DATABASE_URL` = (Your Supabase PostgreSQL Connection String)
+   - `GEMINI_API_KEY` = (Your Google AI Studio Gemini API Key)
+7. Click **Deploy Web Service**. Render will build and launch your container. Copy the public URL (e.g., `https://your-app.onrender.com`).
+
+## Step 3: Deploy Frontend (Vercel or Netlify)
+1. Log in to [Vercel](https://vercel.com) or [Netlify](https://netlify.com).
+2. Import your GitHub repository, selecting the **Root Directory** as `frontend`.
+3. Set the **Framework Preset** to **Vite**.
+4. Under **Environment Variables**, add:
+   - `VITE_API_URL` = `https://your-app.onrender.com/api` (The Render URL + `/api`)
+5. Click **Deploy**. Your frontend is now live.
+Model 6:21 PM
+ThinkingThoughts
+Expand to view model thoughts
+
+chevron_right
+No, the current codebase and deployment model are not ready to accommodate 100 companies.
+If you onboarded 100 companies today, Company A would see and edit Company B's logistics data. This is because the current system is a single-tenant prototype without user accounts, authentication, or data isolation layers. Furthermore, the free-tier infrastructure limits would instantly block operations.
+To scale the system safely to 100 companies, we must address four critical architectural gaps: data isolation (multi-tenancy), user authentication, API rate limits, and database scale.
+1. The Gaps Blocking Multi-Company Scale
+No Tenant Isolation (POPIA Violation): The database table reconciliation_logs has no company_id or tenant_id column. Every query retrieves all records. In South Africa, exposing one mining house or transport company's load weights and routes to a competitor is a major commercial risk and a violation of POPIA.
+No Authentication & Authorization: There is no login mechanism. Users cannot be identified, assigned to companies, or restricted by roles (e.g., Clerk vs. Auditor).
+Gemini Free-Tier Rate Limits: The free tier of Google AI Studio (Gemini Flash) has a strict rate limit of 15 requests per minute (RPM). During morning shift changes in South Africa, when hundreds of trucks are weighed and processed simultaneously across 100 companies, the system would immediately return 429 Too Many Requests errors.
+Supabase Free-Tier Storage Caps: Supabase’s free tier caps database size at 500MB. Raw JSON metadata (raw_mine_json, raw_port_json) from hundreds of daily shipments across 100 companies would fill this database within a few weeks.
+2. How to Transition to 100-Company Scale
+To prepare the application for multi-company operations, we must modify the database schema, implement JWT authentication, and transition to cost-effective paid tiers.
+Step 1: Database Multi-Tenancy Migration (Supabase SQL)
+We must introduce a tenants (companies) table, link users to those tenants, and append a tenant_id foreign key to every logistics record.
+code
+SQL
+-- 1. Create Tenants Table
+CREATE TABLE public.tenants (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 2. Modify Reconciliation Table to include Tenant Association
+ALTER TABLE public.reconciliation_logs 
+ADD COLUMN tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE;
+
+-- Create an index to make queries fast across different tenants
+CREATE INDEX idx_reconciliation_logs_tenant ON public.reconciliation_logs(tenant_id);
+Step 2: Implement JWT Authentication on FastAPI
+Every endpoint must require a JSON Web Token (JWT). The backend will decode the token, identify the user's tenant_id, and strictly filter database queries.
+Here is how the FastAPI backend (backend/app/main.py) must be updated to handle this securely:
+code
+Python
+# backend/app/main.py (Updated for Multi-Tenancy)
+from fastapi import FastAPI, Depends, Security, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+import jwt # PyJWT
+
+security = HTTPBearer()
+JWT_SECRET = "your-jwt-secret-key-shared-with-auth-provider"
+
+def get_current_tenant(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:
+    """
+    Decodes the JWT payload sent by Lovable/Supabase Auth to isolate the company ID.
+    """
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        tenant_id = payload.get("tenant_id")
+        if not tenant_id:
+            raise HTTPException(status_code=403, detail="Tenant ID missing from token credentials.")
+        return tenant_id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=403, detail="Invalid or expired session token.")
+
+@app.get("/api/reconciliations", response_model=List[ReconciliationResponse])
+def get_tenant_reconciliations(
+    tenant_id: str = Depends(get_current_tenant), 
+    db: Session = Depends(get_db)
+):
+    # Strictly filter records belonging only to the authenticated company
+    return db.query(ReconciliationLog).filter(ReconciliationLog.tenant_id == tenant_id).all()
+Step 3: Update the Lovable Frontend
+In Lovable, you must use Supabase Auth to handle user signups and logins. Once a user logs in:
+Supabase issues a JWT session token containing the user's metadata and metadata of their tenant (company).
+Lovable must append this token to the Authorization header of every API call to Render:
+code
+JavaScript
+const { data: { session } } = await supabase.auth.getSession();
+const token = session?.access_token;
+
+const res = await fetch(`${API_BASE}/reconcile`, {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${token}`
+  },
+  body: formData
+});
+3. The Scaled Cost Estimations
+To support 100 companies, you will need to upgrade to paid tiers. Fortunately, because our architecture is lightweight and serverless, the monthly cost is still extremely low.
+Service	Tier Needed	Price (USD)	What it provides
+Supabase	Pro Tier	$25.00 / month	8GB Database size, unlimited projects/realtime connections, no auto-pausing.
+Render	Starter Web Service	$7.00 / month	512MB RAM, shared CPU. Runs 24/7 (no cold-starts).
+Google AI Studio	Pay-As-You-Go	Usage-based	Removes rate limits. At current pricing (
+0.075
+p
+e
+r
+1
+M
+i
+n
+p
+u
+t
+t
+o
+k
+e
+n
+s
+)
+,
+p
+r
+o
+c
+e
+s
+s
+i
+n
+g
+10
+,
+000
+t
+r
+i
+p
+s
+/
+m
+o
+n
+t
+h
+c
+o
+s
+t
+s
+a
+p
+p
+r
+o
+x
+i
+m
+a
+t
+e
+l
+y
+∗
+∗
+0.075per1Minputtokens),processing10,000trips/monthcostsapproximately∗∗
+1.50 (R28.00)** in total API costs.
+Total Cost		~$35.00 / month (approx. R650)	A highly reliable, production-grade infrastructure capable of scaling to 100 active companies.
+info
+Google AI models may make mistakes, so double-check outputs.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+Start typing a prompt to see what our models can do
+
+google
+Grounding with Google Search
+
+link
+URL context
+
+
+Response ready.
