@@ -38,7 +38,7 @@ export function EditReconciliationDialog({
       onError: (err) => {
         toast({
           title: "Update Failed",
-          description: err.error?.error || "Failed to update log.",
+          description: err.data?.error || err.message || "Failed to update log.",
           variant: "destructive"
         });
       }

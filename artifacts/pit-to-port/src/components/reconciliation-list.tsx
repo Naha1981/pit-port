@@ -204,7 +204,7 @@ export function ReconciliationList() {
                     </div>
                     <div className="text-sm text-muted-foreground flex gap-4 font-mono">
                       <span>{formatDate(log.created_at)}</span>
-                      {log.transit_hours !== null && <span>Transit: {log.transit_hours.toFixed(1)}h</span>}
+                      {log.transit_hours != null && <span>Transit: {log.transit_hours.toFixed(1)}h</span>}
                     </div>
                   </div>
                   

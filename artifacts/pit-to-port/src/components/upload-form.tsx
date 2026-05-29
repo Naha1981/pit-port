@@ -30,7 +30,7 @@ export function UploadForm() {
       onError: (err) => {
         toast({
           title: "Reconciliation Failed",
-          description: err.error?.error || "Failed to process documents.",
+          description: err.data?.error || err.message || "Failed to process documents.",
           variant: "destructive"
         });
       }

@@ -30,7 +30,7 @@ export function DeleteReconciliationDialog({
       onError: (err) => {
         toast({
           title: "Delete Failed",
-          description: err.error?.error || "Failed to delete log.",
+          description: err.data?.error || err.message || "Failed to delete log.",
           variant: "destructive"
         });
       }
