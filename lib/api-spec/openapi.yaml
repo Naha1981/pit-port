@@ -390,6 +390,13 @@ components:
           type: ["string", "null"]
         corrected_by:
           type: ["string", "null"]
+        resolved_by:
+          type: ["string", "null"]
+        resolved_at:
+          type: ["string", "null"]
+          format: date-time
+        resolution_note:
+          type: ["string", "null"]
         created_at:
           type: string
           format: date-time

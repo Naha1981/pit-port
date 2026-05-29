@@ -4,6 +4,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { formatNumber, formatPercentage, formatDate, exportReconciliationsAsCsv } from "@/lib/formatters";
 import { EditReconciliationDialog } from "@/components/edit-reconciliation-dialog";
 import { DeleteReconciliationDialog } from "@/components/delete-reconciliation-dialog";
+import { ResolveReconciliationDialog } from "@/components/resolve-reconciliation-dialog";
 import { TruckSummarySheet } from "@/components/truck-summary-sheet";
 import { ComplianceReportDialog } from "@/components/compliance-report-dialog";
 import { VarianceChart } from "@/components/variance-chart";
@@ -14,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Search, Filter, Pencil, Trash2, ChevronDown, FileJson, AlertTriangle, Download, CalendarRange, X, FileText } from "lucide-react";
+import { Search, Filter, Pencil, Trash2, CheckCircle2, ChevronDown, FileJson, AlertTriangle, Download, CalendarRange, X, FileText } from "lucide-react";
 
 export function ReconciliationList() {
   const [search, setSearch] = useState("");
@@ -25,6 +26,7 @@ export function ReconciliationList() {
 
   const [editLog, setEditLog] = useState<ReconciliationLog | null>(null);
   const [deleteLog, setDeleteLog] = useState<ReconciliationLog | null>(null);
+  const [resolveLog, setResolveLog] = useState<ReconciliationLog | null>(null);
   const [truckSummaryReg, setTruckSummaryReg] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
 
@@ -211,10 +213,32 @@ export function ReconciliationList() {
                           Corrected by {log.corrected_by}
                         </span>
                       )}
+                      {log.resolution_note && (
+                        <span className="text-green-500/70" title={`Resolution note: ${log.resolution_note}`}>
+                          · {log.resolution_note.length > 60 ? log.resolution_note.slice(0, 60) + "…" : log.resolution_note}
+                        </span>
+                      )}
                     </div>
                   </div>
                   
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-start gap-2 flex-wrap">
+                    {log.status.toUpperCase().includes("CRITICAL") && !log.resolved_by && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 bg-background text-green-600 hover:text-green-600 hover:bg-green-600/10 border-green-600/30"
+                        onClick={() => setResolveLog(log)}
+                        title="Mark as manually reviewed and resolved"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-2" /> Resolve
+                      </Button>
+                    )}
+                    {log.resolved_by && (
+                      <span className="flex items-center gap-1.5 text-xs text-green-500 font-mono px-2 py-1 rounded border border-green-500/20 bg-green-500/5">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Resolved by {log.resolved_by}
+                      </span>
+                    )}
                     <Button variant="outline" size="sm" className="h-8 bg-background" onClick={() => setEditLog(log)}>
                       <Pencil className="h-3.5 w-3.5 mr-2" /> Correct
                     </Button>
@@ -284,6 +308,7 @@ export function ReconciliationList() {
 
       <EditReconciliationDialog log={editLog} open={!!editLog} onOpenChange={(open) => !open && setEditLog(null)} />
       <DeleteReconciliationDialog log={deleteLog} open={!!deleteLog} onOpenChange={(open) => !open && setDeleteLog(null)} />
+      <ResolveReconciliationDialog log={resolveLog} open={!!resolveLog} onOpenChange={(open) => !open && setResolveLog(null)} />
       <TruckSummarySheet
         truckReg={truckSummaryReg}
         open={!!truckSummaryReg}

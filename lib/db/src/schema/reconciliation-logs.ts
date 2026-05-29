@@ -25,6 +25,9 @@ export const reconciliationLogsTable = pgTable(
     rawMineJson: text("raw_mine_json"),
     rawPortJson: text("raw_port_json"),
     correctedBy: text("corrected_by"),
+    resolvedBy: varchar("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolutionNote: text("resolution_note"),
     createdBy: varchar("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

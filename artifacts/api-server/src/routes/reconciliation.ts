@@ -253,6 +253,49 @@ router.put("/reconciliations/:id", async (req, res): Promise<void> => {
   res.json(toApiLog(updated));
 });
 
+router.post("/reconciliations/:id/resolve", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
+
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid id." });
+    return;
+  }
+
+  const note: string | null = req.body?.resolution_note ?? null;
+
+  const [existing] = await db
+    .select()
+    .from(reconciliationLogsTable)
+    .where(eq(reconciliationLogsTable.id, id));
+
+  if (!existing) {
+    res.status(404).json({ error: "Reconciliation log not found." });
+    return;
+  }
+
+  const operatorName =
+    [req.user.firstName, req.user.lastName].filter(Boolean).join(" ") ||
+    req.user.email ||
+    "Unknown";
+
+  const [updated] = await db
+    .update(reconciliationLogsTable)
+    .set({
+      resolvedBy: operatorName,
+      resolvedAt: new Date(),
+      resolutionNote: note,
+    })
+    .where(eq(reconciliationLogsTable.id, id))
+    .returning();
+
+  req.log.info({ id, resolvedBy: operatorName }, "Reconciliation resolved");
+  res.json(toApiLog(updated));
+});
+
 router.delete("/reconciliations/:id", async (req, res): Promise<void> => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Authentication required." });
@@ -292,6 +335,9 @@ function toApiLog(log: typeof reconciliationLogsTable.$inferSelect) {
     raw_mine_json: log.rawMineJson,
     raw_port_json: log.rawPortJson,
     corrected_by: log.correctedBy ?? null,
+    resolved_by: log.resolvedBy ?? null,
+    resolved_at: log.resolvedAt ? log.resolvedAt.toISOString() : null,
+    resolution_note: log.resolutionNote ?? null,
     created_at: log.createdAt.toISOString(),
   };
 }

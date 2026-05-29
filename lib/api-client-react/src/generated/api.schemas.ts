@@ -39,6 +39,12 @@ export interface ReconciliationLog {
   raw_port_json?: string | null;
   /** @nullable */
   corrected_by?: string | null;
+  /** @nullable */
+  resolved_by?: string | null;
+  /** @nullable */
+  resolved_at?: string | null;
+  /** @nullable */
+  resolution_note?: string | null;
   created_at: string;
 }
 
