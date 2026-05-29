@@ -11,12 +11,14 @@ import {
 } from "@workspace/api-zod";
 import { extractMineSlip, extractPortSlip } from "../lib/gemini";
 import { runReconciliationLogic } from "../lib/reconciliation-engine";
+import { reconcileRateLimiter } from "../middlewares/rateLimiter";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 router.post(
   "/reconcile",
+  reconcileRateLimiter,
   upload.fields([
     { name: "mine_slip", maxCount: 1 },
     { name: "port_slip", maxCount: 1 },
