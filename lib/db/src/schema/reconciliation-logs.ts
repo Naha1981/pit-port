@@ -3,6 +3,7 @@ import {
   serial,
   text,
   real,
+  varchar,
   timestamp,
   index,
 } from "drizzle-orm/pg-core";
@@ -24,6 +25,7 @@ export const reconciliationLogsTable = pgTable(
     rawMineJson: text("raw_mine_json"),
     rawPortJson: text("raw_port_json"),
     correctedBy: text("corrected_by"),
+    createdBy: varchar("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -9,6 +9,10 @@ import { globalRateLimiter } from "./middlewares/rateLimiter";
 
 const app: Express = express();
 
+// Replit routes traffic through a reverse proxy — trust the first hop so
+// express-rate-limit reads X-Forwarded-For correctly.
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,

@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 
 /**
  * Per-user rate limiter for the reconcile endpoint.
@@ -16,7 +16,7 @@ export const reconcileRateLimiter = rateLimit({
   keyGenerator: (req) => {
     // Use session cookie as key so limits are per-user, not per-IP
     const sid: string | undefined = req.cookies?.["sid"];
-    return sid ?? (req.ip ?? "unknown");
+    return sid ?? ipKeyGenerator(req);
   },
   handler: (_req, res) => {
     res.status(429).json({

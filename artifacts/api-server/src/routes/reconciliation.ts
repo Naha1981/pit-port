@@ -70,6 +70,7 @@ router.post(
         status: reconciled.status,
         rawMineJson: JSON.stringify(mineData),
         rawPortJson: JSON.stringify(portData),
+        createdBy: req.user.id,
       })
       .returning();
 

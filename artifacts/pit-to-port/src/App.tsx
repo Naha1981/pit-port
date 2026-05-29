@@ -7,6 +7,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import AuditLog from "@/pages/audit-log";
+import AdminUsage from "@/pages/admin-usage";
 
 const queryClient = new QueryClient();
 
@@ -93,6 +94,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/audit-log" component={AuditLog} />
+      <Route path="/admin/usage" component={AdminUsage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -3,7 +3,7 @@ import { StatsCards } from "@/components/stats-cards";
 import { HighRiskVehicles } from "@/components/high-risk-vehicles";
 import { ReconciliationList } from "@/components/reconciliation-list";
 import { useAuth } from "@workspace/replit-auth-web";
-import { LogOut, User, ShieldCheck } from "lucide-react";
+import { LogOut, User, ShieldCheck, BarChart2 } from "lucide-react";
 import { useLocation } from "wouter";
 import {
   DropdownMenu,
@@ -77,13 +77,22 @@ export default function Dashboard() {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {user?.role === "admin" && (
-                  <DropdownMenuItem
-                    onClick={() => navigate("/audit-log")}
-                    className="gap-2 cursor-pointer"
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    <span>Audit Log</span>
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => navigate("/admin/usage")}
+                      className="gap-2 cursor-pointer"
+                    >
+                      <BarChart2 className="h-3.5 w-3.5" />
+                      <span>Usage Dashboard</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => navigate("/audit-log")}
+                      className="gap-2 cursor-pointer"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span>Audit Log</span>
+                    </DropdownMenuItem>
+                  </>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
