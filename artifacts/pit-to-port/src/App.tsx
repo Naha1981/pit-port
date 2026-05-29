@@ -1,3 +1,4 @@
+import React from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,6 +9,43 @@ import Dashboard from "@/pages/dashboard";
 import AuditLog from "@/pages/audit-log";
 
 const queryClient = new QueryClient();
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[100dvh] bg-background text-foreground flex flex-col items-center justify-center gap-6">
+          <div className="text-center">
+            <h1 className="text-xl font-bold tracking-tight">Something went wrong</h1>
+            <p className="text-muted-foreground text-sm mt-1">An unexpected error occurred.</p>
+          </div>
+          <button
+            onClick={() => {
+              this.setState({ hasError: false });
+              window.location.href = "/";
+            }}
+            className="px-4 py-2 text-sm border border-border rounded-md hover:bg-muted/50 transition-colors font-mono"
+          >
+            Reload app
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isLoading, isAuthenticated, login } = useAuth();
@@ -62,16 +100,18 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AuthGate>
-            <Router />
-          </AuthGate>
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AuthGate>
+              <Router />
+            </AuthGate>
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
-import { eq, desc, ilike, sql } from "drizzle-orm";
+import { eq, desc, ilike, and, gte, lte, sql } from "drizzle-orm";
 import { db, reconciliationLogsTable } from "@workspace/db";
 import {
   ListReconciliationsQueryParams,
@@ -22,6 +22,11 @@ router.post(
     { name: "port_slip", maxCount: 1 },
   ]),
   async (req, res): Promise<void> => {
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ error: "Authentication required." });
+      return;
+    }
+
     const files = req.files as Record<string, Express.Multer.File[]> | undefined;
 
     if (!files?.["mine_slip"]?.[0] || !files?.["port_slip"]?.[0]) {
@@ -44,8 +49,7 @@ router.post(
       ]);
     } catch (err) {
       req.log.error({ err }, "Gemini extraction failed");
-      const message = err instanceof Error ? err.message : "Gemini extraction failed";
-      res.status(500).json({ error: message });
+      res.status(500).json({ error: "Document extraction failed. Please ensure the files are clear weighbridge slips and try again." });
       return;
     }
 
@@ -74,28 +78,38 @@ router.post(
 );
 
 router.get("/reconciliations/stats", async (req, res): Promise<void> => {
-  const rows = await db.select().from(reconciliationLogsTable);
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
 
-  const total = rows.length;
-  const reconciled = rows.filter((r) => r.status === "RECONCILED").length;
-  const warnings = rows.filter((r) => r.status.startsWith("WARNING")).length;
-  const critical = rows.filter((r) => r.status.startsWith("CRITICAL")).length;
+  const [stats] = await db
+    .select({
+      total: sql<number>`COUNT(*)::int`,
+      reconciled: sql<number>`COUNT(CASE WHEN status = 'RECONCILED' THEN 1 END)::int`,
+      warnings: sql<number>`COUNT(CASE WHEN status LIKE 'WARNING%' THEN 1 END)::int`,
+      critical: sql<number>`COUNT(CASE WHEN status LIKE 'CRITICAL%' THEN 1 END)::int`,
+      avg_variance: sql<number | null>`ROUND(AVG(variance)::numeric, 2)`,
+      avg_transit_hours: sql<number | null>`ROUND(AVG(transit_hours)::numeric, 2)`,
+    })
+    .from(reconciliationLogsTable);
 
-  const totalVariance = rows.reduce((sum, r) => sum + (r.variance ?? 0), 0);
-  const avgVariance = total > 0 ? Math.round((totalVariance / total) * 100) / 100 : 0;
-
-  const transitRows = rows.filter((r) => r.transitHours != null);
-  const avgTransitHours =
-    transitRows.length > 0
-      ? Math.round(
-          (transitRows.reduce((sum, r) => sum + (r.transitHours ?? 0), 0) / transitRows.length) * 100
-        ) / 100
-      : null;
-
-  res.json({ total, reconciled, warnings, critical, avg_variance: avgVariance, avg_transit_hours: avgTransitHours });
+  res.json({
+    total: stats.total ?? 0,
+    reconciled: stats.reconciled ?? 0,
+    warnings: stats.warnings ?? 0,
+    critical: stats.critical ?? 0,
+    avg_variance: stats.avg_variance ?? 0,
+    avg_transit_hours: stats.avg_transit_hours ?? null,
+  });
 });
 
 router.get("/reconciliations", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
+
   const parsed = ListReconciliationsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -104,36 +118,40 @@ router.get("/reconciliations", async (req, res): Promise<void> => {
 
   const { search, status, date_from, date_to } = parsed.data;
 
-  let rows = await db
-    .select()
-    .from(reconciliationLogsTable)
-    .orderBy(desc(reconciliationLogsTable.createdAt));
+  const conditions = [];
 
   if (search) {
-    const lower = search.toLowerCase();
-    rows = rows.filter((r) => r.truckReg.toLowerCase().includes(lower));
+    conditions.push(ilike(reconciliationLogsTable.truckReg, `%${search}%`));
   }
-
   if (status) {
-    rows = rows.filter((r) => r.status === status);
+    conditions.push(eq(reconciliationLogsTable.status, status));
   }
-
   if (date_from) {
     const from = new Date(date_from);
     from.setUTCHours(0, 0, 0, 0);
-    rows = rows.filter((r) => r.createdAt >= from);
+    conditions.push(gte(reconciliationLogsTable.createdAt, from));
   }
-
   if (date_to) {
     const to = new Date(date_to);
     to.setUTCHours(23, 59, 59, 999);
-    rows = rows.filter((r) => r.createdAt <= to);
+    conditions.push(lte(reconciliationLogsTable.createdAt, to));
   }
+
+  const rows = await db
+    .select()
+    .from(reconciliationLogsTable)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(reconciliationLogsTable.createdAt));
 
   res.json(rows.map(toApiLog));
 });
 
 router.get("/reconciliations/:id", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
+
   const params = GetReconciliationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -154,6 +172,11 @@ router.get("/reconciliations/:id", async (req, res): Promise<void> => {
 });
 
 router.put("/reconciliations/:id", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
+
   const params = UpdateReconciliationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -189,9 +212,10 @@ router.put("/reconciliations/:id", async (req, res): Promise<void> => {
 
   const reconciled = runReconciliationLogic(mineData, portData);
 
-  const operatorName = req.isAuthenticated()
-    ? [req.user.firstName, req.user.lastName].filter(Boolean).join(" ") || req.user.email || "Unknown"
-    : "Unknown";
+  const operatorName =
+    [req.user.firstName, req.user.lastName].filter(Boolean).join(" ") ||
+    req.user.email ||
+    "Unknown";
 
   const [updated] = await db
     .update(reconciliationLogsTable)
@@ -212,6 +236,11 @@ router.put("/reconciliations/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/reconciliations/:id", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
+
   const params = DeleteReconciliationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

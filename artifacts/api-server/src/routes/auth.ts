@@ -57,15 +57,24 @@ function getSafeReturnTo(value: unknown): string {
   return value;
 }
 
+const adminEmails = (process.env.ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
 async function upsertUser(claims: Record<string, unknown>) {
+  const email = (claims.email as string) || null;
+  const role = email && adminEmails.includes(email.toLowerCase()) ? "admin" : "operator";
+
   const userData = {
     id: claims.sub as string,
-    email: (claims.email as string) || null,
+    email,
     firstName: (claims.first_name as string) || null,
     lastName: (claims.last_name as string) || null,
     profileImageUrl: (claims.profile_image_url || claims.picture) as
       | string
       | null,
+    role,
   };
 
   const [user] = await db
@@ -176,6 +185,7 @@ router.get("/callback", async (req: Request, res: Response) => {
       firstName: dbUser.firstName,
       lastName: dbUser.lastName,
       profileImageUrl: dbUser.profileImageUrl,
+      role: dbUser.role as "operator" | "admin",
     },
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,

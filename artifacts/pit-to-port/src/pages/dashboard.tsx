@@ -76,13 +76,15 @@ export default function Dashboard() {
                   <span className="text-xs font-mono">Operator</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => navigate("/audit-log")}
-                  className="gap-2 cursor-pointer"
-                >
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  <span>Audit Log</span>
-                </DropdownMenuItem>
+                {user?.role === "admin" && (
+                  <DropdownMenuItem
+                    onClick={() => navigate("/audit-log")}
+                    className="gap-2 cursor-pointer"
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    <span>Audit Log</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={logout}

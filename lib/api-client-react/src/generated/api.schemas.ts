@@ -62,6 +62,14 @@ export interface ReconciliationStats {
   avg_transit_hours: number | null;
 }
 
+export type AuthUserRole = typeof AuthUserRole[keyof typeof AuthUserRole];
+
+
+export const AuthUserRole = {
+  operator: 'operator',
+  admin: 'admin',
+} as const;
+
 export interface AuthUser {
   id: string;
   /** @nullable */
@@ -72,6 +80,7 @@ export interface AuthUser {
   lastName: string | null;
   /** @nullable */
   profileImageUrl: string | null;
+  role?: AuthUserRole;
 }
 
 export interface AuthUserEnvelope {

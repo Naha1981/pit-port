@@ -56,9 +56,15 @@ export default function AuditLog() {
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const { user } = useAuth();
+
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated) {
+      navigate("/");
+      return;
+    }
+    if (user && user.role !== "admin") {
       navigate("/");
       return;
     }

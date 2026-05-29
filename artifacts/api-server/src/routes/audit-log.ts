@@ -10,6 +10,11 @@ router.get("/audit-log", async (req: Request, res: Response) => {
     return;
   }
 
+  if (req.user.role !== "admin") {
+    res.status(403).json({ error: "Admin access required to view the audit log." });
+    return;
+  }
+
   const events = await db
     .select({
       id: loginEventsTable.id,
@@ -25,7 +30,7 @@ router.get("/audit-log", async (req: Request, res: Response) => {
     .from(loginEventsTable)
     .leftJoin(usersTable, eq(loginEventsTable.userId, usersTable.id))
     .orderBy(desc(loginEventsTable.createdAt))
-    .limit(200);
+    .limit(500);
 
   res.json({ events });
 });

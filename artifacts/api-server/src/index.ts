@@ -15,6 +15,14 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+if (!process.env["GEMINI_API_KEY"]) {
+  logger.warn("GEMINI_API_KEY is not set — document reconciliation will fail until it is configured.");
+}
+
+if (!process.env["REPL_ID"]) {
+  throw new Error("REPL_ID environment variable is required for authentication.");
+}
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");

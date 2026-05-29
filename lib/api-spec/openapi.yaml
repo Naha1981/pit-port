@@ -447,6 +447,9 @@ components:
           type: [string, 'null']
         profileImageUrl:
           type: [string, 'null']
+        role:
+          type: string
+          enum: [operator, admin]
     AuthUserEnvelope:
       type: object
       required: [user]
