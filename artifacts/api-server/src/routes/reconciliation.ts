@@ -189,6 +189,10 @@ router.put("/reconciliations/:id", async (req, res): Promise<void> => {
 
   const reconciled = runReconciliationLogic(mineData, portData);
 
+  const operatorName = req.isAuthenticated()
+    ? [req.user.firstName, req.user.lastName].filter(Boolean).join(" ") || req.user.email || "Unknown"
+    : "Unknown";
+
   const [updated] = await db
     .update(reconciliationLogsTable)
     .set({
@@ -199,6 +203,7 @@ router.put("/reconciliations/:id", async (req, res): Promise<void> => {
       portNetWeight: reconciled.port_net_weight,
       variance: reconciled.variance,
       status: reconciled.status,
+      correctedBy: operatorName,
     })
     .where(eq(reconciliationLogsTable.id, params.data.id))
     .returning();
@@ -239,6 +244,7 @@ function toApiLog(log: typeof reconciliationLogsTable.$inferSelect) {
     status: log.status,
     raw_mine_json: log.rawMineJson,
     raw_port_json: log.rawPortJson,
+    corrected_by: log.correctedBy ?? null,
     created_at: log.createdAt.toISOString(),
   };
 }

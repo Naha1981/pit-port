@@ -20,6 +20,7 @@ export const reconciliationLogsTable = pgTable("reconciliation_logs", {
   status: text("status").notNull(),
   rawMineJson: text("raw_mine_json"),
   rawPortJson: text("raw_port_json"),
+  correctedBy: text("corrected_by"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

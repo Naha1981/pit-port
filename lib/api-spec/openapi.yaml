@@ -388,6 +388,8 @@ components:
           type: ["string", "null"]
         raw_port_json:
           type: ["string", "null"]
+        corrected_by:
+          type: ["string", "null"]
         created_at:
           type: string
           format: date-time

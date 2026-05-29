@@ -50,6 +50,7 @@ export const ListReconciliationsResponseItem = zod.object({
   "status": zod.string(),
   "raw_mine_json": zod.string().nullish(),
   "raw_port_json": zod.string().nullish(),
+  "corrected_by": zod.string().nullish(),
   "created_at": zod.coerce.date()
 })
 export const ListReconciliationsResponse = zod.array(ListReconciliationsResponseItem)
@@ -88,6 +89,7 @@ export const GetReconciliationResponse = zod.object({
   "status": zod.string(),
   "raw_mine_json": zod.string().nullish(),
   "raw_port_json": zod.string().nullish(),
+  "corrected_by": zod.string().nullish(),
   "created_at": zod.coerce.date()
 })
 
@@ -120,6 +122,7 @@ export const UpdateReconciliationResponse = zod.object({
   "status": zod.string(),
   "raw_mine_json": zod.string().nullish(),
   "raw_port_json": zod.string().nullish(),
+  "corrected_by": zod.string().nullish(),
   "created_at": zod.coerce.date()
 })
 

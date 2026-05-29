@@ -202,9 +202,15 @@ export function ReconciliationList() {
                       </button>
                       {getStatusBadge(log.status)}
                     </div>
-                    <div className="text-sm text-muted-foreground flex gap-4 font-mono">
+                    <div className="text-sm text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 font-mono">
                       <span>{formatDate(log.created_at)}</span>
                       {log.transit_hours != null && <span>Transit: {log.transit_hours.toFixed(1)}h</span>}
+                      {log.corrected_by && (
+                        <span className="flex items-center gap-1 text-amber-500/80">
+                          <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Z"/></svg>
+                          Corrected by {log.corrected_by}
+                        </span>
+                      )}
                     </div>
                   </div>
                   

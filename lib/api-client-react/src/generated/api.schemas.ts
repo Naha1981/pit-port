@@ -37,6 +37,8 @@ export interface ReconciliationLog {
   raw_mine_json?: string | null;
   /** @nullable */
   raw_port_json?: string | null;
+  /** @nullable */
+  corrected_by?: string | null;
   created_at: string;
 }
 

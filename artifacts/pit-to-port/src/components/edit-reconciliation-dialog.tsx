@@ -79,6 +79,11 @@ export function EditReconciliationDialog({
           <DialogTitle>Correct Reconciliation</DialogTitle>
           <DialogDescription>
             Make human corrections to the extracted values. Status and variance will be recalculated automatically.
+            {log?.corrected_by && (
+              <span className="block mt-1 text-amber-500/80 text-xs">
+                Previously corrected by {log.corrected_by}
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
