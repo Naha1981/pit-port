@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -48,6 +49,8 @@ export default function Dashboard() {
             <div className="text-sm text-muted-foreground font-mono hidden md:block">
               {new Date().toISOString().split("T")[0]}
             </div>
+
+            {user?.role === "admin" && <NotificationsBell />}
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

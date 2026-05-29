@@ -1,4 +1,5 @@
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { notify } from "../lib/notify";
 
 /**
  * Per-user rate limiter for the reconcile endpoint.
@@ -18,7 +19,17 @@ export const reconcileRateLimiter = rateLimit({
     const sid: string | undefined = req.cookies?.["sid"];
     return sid ?? ipKeyGenerator(req);
   },
-  handler: (_req, res) => {
+  handler: (req, res) => {
+    const user = (req as unknown as { user?: { id?: string; email?: string; firstName?: string; lastName?: string } }).user;
+    notify({
+      type: "RATE_LIMIT_HIT",
+      message: `User ${user?.email ?? user?.id ?? "unknown"} hit the reconciliation rate limit (10/hr).`,
+      metadata: {
+        userId: user?.id ?? null,
+        email: user?.email ?? null,
+        name: user?.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : null,
+      },
+    });
     res.status(429).json({
       error: "Too many reconciliation requests. You may process up to 10 documents per hour. Please try again later.",
     });

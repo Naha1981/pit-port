@@ -12,6 +12,7 @@ import {
 import { extractMineSlip, extractPortSlip } from "../lib/gemini";
 import { runReconciliationLogic } from "../lib/reconciliation-engine";
 import { reconcileRateLimiter } from "../middlewares/rateLimiter";
+import { notify } from "../lib/notify";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -75,6 +76,20 @@ router.post(
       .returning();
 
     req.log.info({ id: log.id, status: log.status }, "Reconciliation logged");
+
+    if (log.status.toUpperCase().includes("CRITICAL")) {
+      notify({
+        type: "CRITICAL_RECONCILIATION",
+        message: `Critical variance detected for truck ${log.truckReg}: ${log.variance.toFixed(2)}% variance (${log.status}).`,
+        metadata: {
+          id: log.id,
+          truckReg: log.truckReg,
+          variance: log.variance,
+          status: log.status,
+          consignmentNote: log.consignmentNote ?? null,
+        },
+      });
+    }
 
     res.status(201).json(toApiLog(log));
   }
