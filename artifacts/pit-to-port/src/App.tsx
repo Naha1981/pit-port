@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@workspace/replit-auth-web";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
+import AuditLog from "@/pages/audit-log";
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/audit-log" component={AuditLog} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -6,7 +6,7 @@ import {
   ExchangeMobileAuthorizationCodeResponse,
   LogoutMobileSessionResponse,
 } from "@workspace/api-zod";
-import { db, usersTable } from "@workspace/db";
+import { db, usersTable, loginEventsTable } from "@workspace/db";
 import {
   clearSession,
   getOidcConfig,
@@ -184,6 +184,14 @@ router.get("/callback", async (req: Request, res: Response) => {
 
   const sid = await createSession(sessionData);
   setSessionCookie(res, sid);
+
+  const ip =
+    (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    null;
+  const userAgent = req.headers["user-agent"] || null;
+  await db.insert(loginEventsTable).values({ userId: dbUser.id, ip, userAgent });
+
   res.redirect(returnTo);
 });
 

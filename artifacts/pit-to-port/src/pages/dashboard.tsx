@@ -3,7 +3,8 @@ import { StatsCards } from "@/components/stats-cards";
 import { HighRiskVehicles } from "@/components/high-risk-vehicles";
 import { ReconciliationList } from "@/components/reconciliation-list";
 import { useAuth } from "@workspace/replit-auth-web";
-import { LogOut, User } from "lucide-react";
+import { LogOut, User, ShieldCheck } from "lucide-react";
+import { useLocation } from "wouter";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +17,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
+  const [, navigate] = useLocation();
 
   const displayName =
     user?.firstName && user?.lastName
@@ -72,6 +74,14 @@ export default function Dashboard() {
                 <DropdownMenuItem disabled className="gap-2 text-muted-foreground cursor-default">
                   <User className="h-3.5 w-3.5" />
                   <span className="text-xs font-mono">Operator</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => navigate("/audit-log")}
+                  className="gap-2 cursor-pointer"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span>Audit Log</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
